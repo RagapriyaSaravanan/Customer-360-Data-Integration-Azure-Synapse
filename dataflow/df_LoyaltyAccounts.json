@@ -1,0 +1,160 @@
+{
+	"name": "df_LoyaltyAccounts",
+	"properties": {
+		"type": "MappingDataFlow",
+		"typeProperties": {
+			"sources": [
+				{
+					"linkedService": {
+						"referenceName": "ls_AzureDataLakeStorage",
+						"type": "LinkedServiceReference"
+					},
+					"name": "LoyaltyAccounts"
+				},
+				{
+					"linkedService": {
+						"referenceName": "ls_AzureSqlDatabase",
+						"type": "LinkedServiceReference"
+					},
+					"name": "Customers"
+				}
+			],
+			"sinks": [
+				{
+					"linkedService": {
+						"referenceName": "ls_AzureSqlDatabase",
+						"type": "LinkedServiceReference"
+					},
+					"name": "LoyaltyAccountsDBSink"
+				},
+				{
+					"linkedService": {
+						"referenceName": "ls_AzureDataLakeStorage",
+						"type": "LinkedServiceReference"
+					},
+					"name": "LoyaltyAccountsNullSink"
+				}
+			],
+			"transformations": [
+				{
+					"name": "AddsrctoColumns"
+				},
+				{
+					"name": "LookupCustomers"
+				},
+				{
+					"name": "filterNulls"
+				},
+				{
+					"name": "split1"
+				},
+				{
+					"name": "RemoveDuplicates"
+				},
+				{
+					"name": "alterRow"
+				},
+				{
+					"name": "Renamethecolumns"
+				}
+			],
+			"scriptLines": [
+				"source(output(",
+				"          LoyaltyID as integer,",
+				"          CustomerID as integer,",
+				"          PointsEarned as integer,",
+				"          TierLevel as string,",
+				"          JoinDate as date",
+				"     ),",
+				"     useSchema: false,",
+				"     allowSchemaDrift: true,",
+				"     validateSchema: false,",
+				"     ignoreNoFilesFound: false,",
+				"     format: 'delimited',",
+				"     fileSystem: 'project3',",
+				"     folderPath: 'bronze',",
+				"     fileName: 'LoyaltyAccounts.csv',",
+				"     columnDelimiter: ',',",
+				"     escapeChar: '\\\\',",
+				"     quoteChar: '\\\"',",
+				"     columnNamesAsHeader: true) ~> LoyaltyAccounts",
+				"source(output(",
+				"          CustomerID as integer",
+				"     ),",
+				"     allowSchemaDrift: true,",
+				"     validateSchema: false,",
+				"     format: 'query',",
+				"     store: 'sqlserver',",
+				"     query: 'SELECT CustomerID FROM dbo.Customers',",
+				"     isolationLevel: 'READ_UNCOMMITTED') ~> Customers",
+				"LoyaltyAccounts select(mapColumn(",
+				"          each(match(1==1),",
+				"               concat('src_',$$) = $$)",
+				"     ),",
+				"     skipDuplicateMapInputs: true,",
+				"     skipDuplicateMapOutputs: true) ~> AddsrctoColumns",
+				"RemoveDuplicates, Customers lookup(src_CustomerID == CustomerID,",
+				"     multiple: false,",
+				"     pickup: 'any',",
+				"     broadcast: 'auto')~> LookupCustomers",
+				"AddsrctoColumns filter(!isNull(src_LoyaltyID) && !isNull(src_CustomerID) && !isNull(src_PointsEarned) && !isNull(src_TierLevel) && !isNull(src_JoinDate)) ~> filterNulls",
+				"LookupCustomers split(!isNull(CustomerID),",
+				"     disjoint: false) ~> split1@(isExists, NotExists)",
+				"filterNulls aggregate(groupBy(src_LoyaltyID),",
+				"     each(match(name!='src_LoyaltyID'), $$ = first($$))) ~> RemoveDuplicates",
+				"split1@isExists alterRow(upsertIf(1==1)) ~> alterRow",
+				"split1@NotExists select(mapColumn(",
+				"          LoyaltyID = src_LoyaltyID,",
+				"          CustomerID = src_CustomerID,",
+				"          PointsEarned = src_PointsEarned,",
+				"          TierLevel = src_TierLevel,",
+				"          JoinDate = src_JoinDate",
+				"     ),",
+				"     skipDuplicateMapInputs: true,",
+				"     skipDuplicateMapOutputs: true) ~> Renamethecolumns",
+				"alterRow sink(allowSchemaDrift: true,",
+				"     validateSchema: false,",
+				"     input(",
+				"          LoyaltyID as integer,",
+				"          CustomerID as integer,",
+				"          PointsEarned as integer,",
+				"          TierLevel as string,",
+				"          JoinDate as date",
+				"     ),",
+				"     format: 'table',",
+				"     store: 'sqlserver',",
+				"     schemaName: 'dbo',",
+				"     tableName: 'LoyaltyAccounts',",
+				"     insertable: false,",
+				"     updateable: false,",
+				"     deletable: false,",
+				"     upsertable: true,",
+				"     keys:['LoyaltyID'],",
+				"     skipDuplicateMapInputs: true,",
+				"     skipDuplicateMapOutputs: true,",
+				"     errorHandlingOption: 'stopOnFirstError',",
+				"     mapColumn(",
+				"          LoyaltyID = src_LoyaltyID,",
+				"          CustomerID = src_CustomerID,",
+				"          PointsEarned = src_PointsEarned,",
+				"          TierLevel = src_TierLevel,",
+				"          JoinDate = src_JoinDate",
+				"     )) ~> LoyaltyAccountsDBSink",
+				"Renamethecolumns sink(allowSchemaDrift: true,",
+				"     validateSchema: false,",
+				"     format: 'delimited',",
+				"     fileSystem: 'project3',",
+				"     folderPath: 'silver-uncleaned/loyaltyAccounts',",
+				"     columnDelimiter: ',',",
+				"     escapeChar: '\\\\',",
+				"     quoteChar: '\\\"',",
+				"     columnNamesAsHeader: true,",
+				"     umask: 0022,",
+				"     preCommands: [],",
+				"     postCommands: [],",
+				"     skipDuplicateMapInputs: true,",
+				"     skipDuplicateMapOutputs: true) ~> LoyaltyAccountsNullSink"
+			]
+		}
+	}
+}

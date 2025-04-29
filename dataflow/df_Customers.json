@@ -1,0 +1,130 @@
+{
+	"name": "df_Customers",
+	"properties": {
+		"type": "MappingDataFlow",
+		"typeProperties": {
+			"sources": [
+				{
+					"linkedService": {
+						"referenceName": "ls_AzureDataLakeStorage",
+						"type": "LinkedServiceReference"
+					},
+					"name": "Customers"
+				}
+			],
+			"sinks": [
+				{
+					"linkedService": {
+						"referenceName": "ls_AzureDataLakeStorage",
+						"type": "LinkedServiceReference"
+					},
+					"name": "CustomersNullSink"
+				},
+				{
+					"linkedService": {
+						"referenceName": "ls_AzureSqlDatabase",
+						"type": "LinkedServiceReference"
+					},
+					"name": "CustomersDBSink"
+				}
+			],
+			"transformations": [
+				{
+					"name": "AddsrctoColumnNames"
+				},
+				{
+					"name": "split1"
+				},
+				{
+					"name": "RenametheColumns"
+				},
+				{
+					"name": "RemoveDuplicates"
+				},
+				{
+					"name": "alterRow"
+				}
+			],
+			"scriptLines": [
+				"source(output(",
+				"          CustomerID as integer,",
+				"          Name as string,",
+				"          Email as string,",
+				"          Address as string",
+				"     ),",
+				"     useSchema: false,",
+				"     allowSchemaDrift: true,",
+				"     validateSchema: false,",
+				"     ignoreNoFilesFound: false,",
+				"     format: 'delimited',",
+				"     fileSystem: 'project3',",
+				"     folderPath: 'bronze',",
+				"     fileName: 'Customers.csv',",
+				"     columnDelimiter: ',',",
+				"     escapeChar: '\\\\',",
+				"     quoteChar: '\\\"',",
+				"     columnNamesAsHeader: true) ~> Customers",
+				"Customers select(mapColumn(",
+				"          each(match(1==1),",
+				"               concat('src_',$$) = $$)",
+				"     ),",
+				"     skipDuplicateMapInputs: true,",
+				"     skipDuplicateMapOutputs: true) ~> AddsrctoColumnNames",
+				"AddsrctoColumnNames split(isNull(src_CustomerID) || isNull(src_Name) || isNull(src_Email) || isNull(src_Address),",
+				"     disjoint: false) ~> split1@(isNullCustomers, notNullCustomers)",
+				"split1@isNullCustomers select(mapColumn(",
+				"          CustomerID = src_CustomerID,",
+				"          Name = src_Name,",
+				"          Email = src_Email,",
+				"          Address = src_Address",
+				"     ),",
+				"     skipDuplicateMapInputs: true,",
+				"     skipDuplicateMapOutputs: true) ~> RenametheColumns",
+				"split1@notNullCustomers aggregate(groupBy(src_CustomerID),",
+				"     each(match(name!='src_CustomerID'), $$ = first($$))) ~> RemoveDuplicates",
+				"RemoveDuplicates alterRow(upsertIf(1==1)) ~> alterRow",
+				"RenametheColumns sink(allowSchemaDrift: true,",
+				"     validateSchema: false,",
+				"     format: 'delimited',",
+				"     fileSystem: 'project3',",
+				"     folderPath: 'silver-uncleaned/customers',",
+				"     columnDelimiter: ',',",
+				"     escapeChar: '\\\\',",
+				"     quoteChar: '\\\"',",
+				"     columnNamesAsHeader: true,",
+				"     umask: 0022,",
+				"     preCommands: [],",
+				"     postCommands: [],",
+				"     skipDuplicateMapInputs: true,",
+				"     skipDuplicateMapOutputs: true) ~> CustomersNullSink",
+				"alterRow sink(allowSchemaDrift: true,",
+				"     validateSchema: false,",
+				"     input(",
+				"          CustomerID as integer,",
+				"          Name as string,",
+				"          Email as string,",
+				"          Address as string",
+				"     ),",
+				"     format: 'table',",
+				"     store: 'sqlserver',",
+				"     schemaName: 'dbo',",
+				"     tableName: 'Customers',",
+				"     insertable: false,",
+				"     updateable: false,",
+				"     deletable: false,",
+				"     upsertable: true,",
+				"     keys:['CustomerID'],",
+				"     stagingSchemaName: '',",
+				"     skipDuplicateMapInputs: true,",
+				"     skipDuplicateMapOutputs: true,",
+				"     errorHandlingOption: 'stopOnFirstError',",
+				"     mapColumn(",
+				"          CustomerID = src_CustomerID,",
+				"          Name = src_Name,",
+				"          Email = src_Email,",
+				"          Address = src_Address",
+				"     )) ~> CustomersDBSink"
+			]
+		}
+	}
+}

@@ -1,0 +1,130 @@
+{
+	"name": "df_Stores",
+	"properties": {
+		"type": "MappingDataFlow",
+		"typeProperties": {
+			"sources": [
+				{
+					"linkedService": {
+						"referenceName": "ls_AzureDataLakeStorage",
+						"type": "LinkedServiceReference"
+					},
+					"name": "Stores"
+				}
+			],
+			"sinks": [
+				{
+					"linkedService": {
+						"referenceName": "ls_AzureDataLakeStorage",
+						"type": "LinkedServiceReference"
+					},
+					"name": "StoresNullSink"
+				},
+				{
+					"linkedService": {
+						"referenceName": "ls_AzureSqlDatabase",
+						"type": "LinkedServiceReference"
+					},
+					"name": "StoresDBSink"
+				}
+			],
+			"transformations": [
+				{
+					"name": "AddsrctoColumnNames"
+				},
+				{
+					"name": "split1"
+				},
+				{
+					"name": "RenametheColumns"
+				},
+				{
+					"name": "RemoveDuplicates"
+				},
+				{
+					"name": "alterRow"
+				}
+			],
+			"scriptLines": [
+				"source(output(",
+				"          StoreID as integer,",
+				"          Location as string,",
+				"          Manager as string,",
+				"          OpenHours as string",
+				"     ),",
+				"     useSchema: false,",
+				"     allowSchemaDrift: true,",
+				"     validateSchema: false,",
+				"     ignoreNoFilesFound: false,",
+				"     format: 'delimited',",
+				"     fileSystem: 'project3',",
+				"     folderPath: 'bronze',",
+				"     fileName: 'Stores.csv',",
+				"     columnDelimiter: ',',",
+				"     escapeChar: '\\\\',",
+				"     quoteChar: '\\\"',",
+				"     columnNamesAsHeader: true) ~> Stores",
+				"Stores select(mapColumn(",
+				"          each(match(1==1),",
+				"               concat('src_',$$) = $$)",
+				"     ),",
+				"     skipDuplicateMapInputs: true,",
+				"     skipDuplicateMapOutputs: true) ~> AddsrctoColumnNames",
+				"AddsrctoColumnNames split(isNull(src_StoreID) || isNull(src_Location) || isNull(src_Manager) || isNull(src_OpenHours),",
+				"     disjoint: false) ~> split1@(isNullStores, notNullStores)",
+				"split1@isNullStores select(mapColumn(",
+				"          StoreID = src_StoreID,",
+				"          Location = src_Location,",
+				"          Manager = src_Manager,",
+				"          OpenHours = src_OpenHours",
+				"     ),",
+				"     skipDuplicateMapInputs: true,",
+				"     skipDuplicateMapOutputs: true) ~> RenametheColumns",
+				"split1@notNullStores aggregate(groupBy(src_StoreID),",
+				"     each(match(name!='src_StoreID'), $$ = first($$))) ~> RemoveDuplicates",
+				"RemoveDuplicates alterRow(upsertIf(1==1)) ~> alterRow",
+				"RenametheColumns sink(allowSchemaDrift: true,",
+				"     validateSchema: false,",
+				"     format: 'delimited',",
+				"     fileSystem: 'project3',",
+				"     folderPath: 'silver-uncleaned/stores',",
+				"     columnDelimiter: ',',",
+				"     escapeChar: '\\\\',",
+				"     quoteChar: '\\\"',",
+				"     columnNamesAsHeader: true,",
+				"     umask: 0022,",
+				"     preCommands: [],",
+				"     postCommands: [],",
+				"     skipDuplicateMapInputs: true,",
+				"     skipDuplicateMapOutputs: true) ~> StoresNullSink",
+				"alterRow sink(allowSchemaDrift: true,",
+				"     validateSchema: false,",
+				"     input(",
+				"          StoreID as integer,",
+				"          Location as string,",
+				"          Manager as string,",
+				"          OpenHours as string",
+				"     ),",
+				"     format: 'table',",
+				"     store: 'sqlserver',",
+				"     schemaName: 'dbo',",
+				"     tableName: 'Stores',",
+				"     insertable: false,",
+				"     updateable: false,",
+				"     deletable: false,",
+				"     upsertable: true,",
+				"     keys:['StoreID'],",
+				"     stagingSchemaName: '',",
+				"     skipDuplicateMapInputs: true,",
+				"     skipDuplicateMapOutputs: true,",
+				"     errorHandlingOption: 'stopOnFirstError',",
+				"     mapColumn(",
+				"          StoreID = src_StoreID,",
+				"          Location = src_Location,",
+				"          Manager = src_Manager,",
+				"          OpenHours = src_OpenHours",
+				"     )) ~> StoresDBSink"
+			]
+		}
+	}
+}

@@ -1,0 +1,130 @@
+{
+	"name": "df_Agents",
+	"properties": {
+		"type": "MappingDataFlow",
+		"typeProperties": {
+			"sources": [
+				{
+					"linkedService": {
+						"referenceName": "ls_AzureDataLakeStorage",
+						"type": "LinkedServiceReference"
+					},
+					"name": "Agents"
+				}
+			],
+			"sinks": [
+				{
+					"linkedService": {
+						"referenceName": "ls_AzureDataLakeStorage",
+						"type": "LinkedServiceReference"
+					},
+					"name": "AgentsNullSink"
+				},
+				{
+					"linkedService": {
+						"referenceName": "ls_AzureSqlDatabase",
+						"type": "LinkedServiceReference"
+					},
+					"name": "AgentsDBSink"
+				}
+			],
+			"transformations": [
+				{
+					"name": "AddsrctoColumnNames"
+				},
+				{
+					"name": "split1"
+				},
+				{
+					"name": "RenametheColumns"
+				},
+				{
+					"name": "RemoveDuplicates"
+				},
+				{
+					"name": "alterRow"
+				}
+			],
+			"scriptLines": [
+				"source(output(",
+				"          AgentID as integer,",
+				"          Name as string,",
+				"          Department as string,",
+				"          Shift as string",
+				"     ),",
+				"     useSchema: false,",
+				"     allowSchemaDrift: true,",
+				"     validateSchema: false,",
+				"     ignoreNoFilesFound: false,",
+				"     format: 'delimited',",
+				"     fileSystem: 'project3',",
+				"     folderPath: 'bronze',",
+				"     fileName: 'Agents.csv',",
+				"     columnDelimiter: ',',",
+				"     escapeChar: '\\\\',",
+				"     quoteChar: '\\\"',",
+				"     columnNamesAsHeader: true) ~> Agents",
+				"Agents select(mapColumn(",
+				"          each(match(1==1),",
+				"               concat('src_',$$) = $$)",
+				"     ),",
+				"     skipDuplicateMapInputs: true,",
+				"     skipDuplicateMapOutputs: true) ~> AddsrctoColumnNames",
+				"AddsrctoColumnNames split(isNull(src_AgentID) || isNull(src_Name) || isNull(src_Department) || isNull(src_Shift),",
+				"     disjoint: false) ~> split1@(isNullAgents, notNullAgents)",
+				"split1@isNullAgents select(mapColumn(",
+				"          AgentID = src_AgentID,",
+				"          Name = src_Name,",
+				"          Department = src_Department,",
+				"          Shift = src_Shift",
+				"     ),",
+				"     skipDuplicateMapInputs: true,",
+				"     skipDuplicateMapOutputs: true) ~> RenametheColumns",
+				"split1@notNullAgents aggregate(groupBy(src_AgentID),",
+				"     each(match(name!='src_AgentID'), $$ = first($$))) ~> RemoveDuplicates",
+				"RemoveDuplicates alterRow(upsertIf(1==1)) ~> alterRow",
+				"RenametheColumns sink(allowSchemaDrift: true,",
+				"     validateSchema: false,",
+				"     format: 'delimited',",
+				"     fileSystem: 'project3',",
+				"     folderPath: 'silver-uncleaned/agents',",
+				"     columnDelimiter: ',',",
+				"     escapeChar: '\\\\',",
+				"     quoteChar: '\\\"',",
+				"     columnNamesAsHeader: true,",
+				"     umask: 0022,",
+				"     preCommands: [],",
+				"     postCommands: [],",
+				"     skipDuplicateMapInputs: true,",
+				"     skipDuplicateMapOutputs: true) ~> AgentsNullSink",
+				"alterRow sink(allowSchemaDrift: true,",
+				"     validateSchema: false,",
+				"     input(",
+				"          AgentID as integer,",
+				"          Name as string,",
+				"          Department as string,",
+				"          Shift as string",
+				"     ),",
+				"     format: 'table',",
+				"     store: 'sqlserver',",
+				"     schemaName: 'dbo',",
+				"     tableName: 'Agents',",
+				"     insertable: false,",
+				"     updateable: false,",
+				"     deletable: false,",
+				"     upsertable: true,",
+				"     keys:['AgentID'],",
+				"     stagingSchemaName: '',",
+				"     skipDuplicateMapInputs: true,",
+				"     skipDuplicateMapOutputs: true,",
+				"     errorHandlingOption: 'stopOnFirstError',",
+				"     mapColumn(",
+				"          AgentID = src_AgentID,",
+				"          Name = src_Name,",
+				"          Department = src_Department,",
+				"          Shift = src_Shift",
+				"     )) ~> AgentsDBSink"
+			]
+		}
+	}
+}

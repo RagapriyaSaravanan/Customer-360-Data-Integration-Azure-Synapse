@@ -1,0 +1,187 @@
+{
+	"name": "df_CustomerServiceInteractions",
+	"properties": {
+		"type": "MappingDataFlow",
+		"typeProperties": {
+			"sources": [
+				{
+					"linkedService": {
+						"referenceName": "ls_AzureDataLakeStorage",
+						"type": "LinkedServiceReference"
+					},
+					"name": "CustomerServiceInteractions"
+				},
+				{
+					"linkedService": {
+						"referenceName": "ls_AzureSqlDatabase",
+						"type": "LinkedServiceReference"
+					},
+					"name": "Customers"
+				},
+				{
+					"linkedService": {
+						"referenceName": "ls_AzureSqlDatabase",
+						"type": "LinkedServiceReference"
+					},
+					"name": "Stores"
+				}
+			],
+			"sinks": [
+				{
+					"linkedService": {
+						"referenceName": "ls_AzureSqlDatabase",
+						"type": "LinkedServiceReference"
+					},
+					"name": "CustomerServiceInteractionsDBSink"
+				},
+				{
+					"linkedService": {
+						"referenceName": "ls_AzureDataLakeStorage",
+						"type": "LinkedServiceReference"
+					},
+					"name": "CustomerServiceInteractionsNullSink"
+				}
+			],
+			"transformations": [
+				{
+					"name": "AddsrctoColumns"
+				},
+				{
+					"name": "LookupCustomers"
+				},
+				{
+					"name": "LookupAgents"
+				},
+				{
+					"name": "filterNulls"
+				},
+				{
+					"name": "split1"
+				},
+				{
+					"name": "RemoveDuplicates"
+				},
+				{
+					"name": "alterRow"
+				},
+				{
+					"name": "Renamethecolumns"
+				}
+			],
+			"scriptLines": [
+				"source(output(",
+				"          InteractionID as integer,",
+				"          CustomerID as integer,",
+				"          DateTime as timestamp,",
+				"          AgentID as integer,",
+				"          IssueType as string,",
+				"          ResolutionStatus as string",
+				"     ),",
+				"     useSchema: false,",
+				"     allowSchemaDrift: true,",
+				"     validateSchema: false,",
+				"     ignoreNoFilesFound: false,",
+				"     format: 'delimited',",
+				"     fileSystem: 'project3',",
+				"     folderPath: 'bronze',",
+				"     fileName: 'CustomerServiceInteractions.csv',",
+				"     columnDelimiter: ',',",
+				"     escapeChar: '\\\\',",
+				"     quoteChar: '\\\"',",
+				"     columnNamesAsHeader: true) ~> CustomerServiceInteractions",
+				"source(output(",
+				"          CustomerID as integer",
+				"     ),",
+				"     allowSchemaDrift: true,",
+				"     validateSchema: false,",
+				"     format: 'query',",
+				"     store: 'sqlserver',",
+				"     query: 'SELECT CustomerID FROM dbo.Customers',",
+				"     isolationLevel: 'READ_UNCOMMITTED') ~> Customers",
+				"source(output(",
+				"          AgentID as integer",
+				"     ),",
+				"     allowSchemaDrift: true,",
+				"     validateSchema: false,",
+				"     format: 'query',",
+				"     store: 'sqlserver',",
+				"     query: 'SELECT AgentID FROM dbo.Agents',",
+				"     isolationLevel: 'READ_UNCOMMITTED') ~> Stores",
+				"CustomerServiceInteractions select(mapColumn(",
+				"          each(match(1==1),",
+				"               concat('src_',$$) = $$)",
+				"     ),",
+				"     skipDuplicateMapInputs: true,",
+				"     skipDuplicateMapOutputs: true) ~> AddsrctoColumns",
+				"RemoveDuplicates, Customers lookup(src_CustomerID == CustomerID,",
+				"     multiple: false,",
+				"     pickup: 'any',",
+				"     broadcast: 'auto')~> LookupCustomers",
+				"LookupCustomers, Stores lookup(src_AgentID == AgentID,",
+				"     multiple: false,",
+				"     pickup: 'any',",
+				"     broadcast: 'auto')~> LookupAgents",
+				"AddsrctoColumns filter(!isNull(src_InteractionID) && !isNull(src_CustomerID) && !isNull(src_AgentID) && !isNull(src_DateTime) && !isNull(src_IssueType) && !isNull(src_ResolutionStatus)) ~> filterNulls",
+				"LookupAgents split(!isNull(CustomerID) && !isNull(AgentID),",
+				"     disjoint: false) ~> split1@(isExists, NotExists)",
+				"filterNulls aggregate(groupBy(src_InteractionID),",
+				"     each(match(name!='src_InteractionID'), $$ = first($$))) ~> RemoveDuplicates",
+				"split1@isExists alterRow(upsertIf(1==1)) ~> alterRow",
+				"split1@NotExists select(mapColumn(",
+				"          InteractionID = src_InteractionID,",
+				"          CustomerID = src_CustomerID,",
+				"          DateTime = src_DateTime,",
+				"          AgentID = src_AgentID,",
+				"          IssueType = src_IssueType,",
+				"          ResolutionStatus = src_ResolutionStatus",
+				"     ),",
+				"     skipDuplicateMapInputs: true,",
+				"     skipDuplicateMapOutputs: true) ~> Renamethecolumns",
+				"alterRow sink(allowSchemaDrift: true,",
+				"     validateSchema: false,",
+				"     input(",
+				"          InteractionID as integer,",
+				"          CustomerID as integer,",
+				"          DateTime as timestamp,",
+				"          AgentID as integer,",
+				"          IssueType as string,",
+				"          ResolutionStatus as string",
+				"     ),",
+				"     format: 'table',",
+				"     store: 'sqlserver',",
+				"     schemaName: 'dbo',",
+				"     tableName: 'CustomerServiceInteractions',",
+				"     insertable: false,",
+				"     updateable: false,",
+				"     deletable: false,",
+				"     upsertable: true,",
+				"     keys:['InteractionID'],",
+				"     skipDuplicateMapInputs: true,",
+				"     skipDuplicateMapOutputs: true,",
+				"     errorHandlingOption: 'stopOnFirstError',",
+				"     mapColumn(",
+				"          InteractionID = src_InteractionID,",
+				"          CustomerID = src_CustomerID,",
+				"          DateTime = src_DateTime,",
+				"          AgentID = src_AgentID,",
+				"          IssueType = src_IssueType,",
+				"          ResolutionStatus = src_ResolutionStatus",
+				"     )) ~> CustomerServiceInteractionsDBSink",
+				"Renamethecolumns sink(allowSchemaDrift: true,",
+				"     validateSchema: false,",
+				"     format: 'delimited',",
+				"     fileSystem: 'project3',",
+				"     folderPath: 'silver-uncleaned/customerServiceInteractions',",
+				"     columnDelimiter: ',',",
+				"     escapeChar: '\\\\',",
+				"     quoteChar: '\\\"',",
+				"     columnNamesAsHeader: true,",
+				"     umask: 0022,",
+				"     preCommands: [],",
+				"     postCommands: [],",
+				"     skipDuplicateMapInputs: true,",
+				"     skipDuplicateMapOutputs: true) ~> CustomerServiceInteractionsNullSink"
+			]
+		}
+	}
+}

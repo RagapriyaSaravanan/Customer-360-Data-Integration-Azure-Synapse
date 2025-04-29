@@ -1,0 +1,130 @@
+{
+	"name": "df_Products",
+	"properties": {
+		"type": "MappingDataFlow",
+		"typeProperties": {
+			"sources": [
+				{
+					"linkedService": {
+						"referenceName": "ls_AzureDataLakeStorage",
+						"type": "LinkedServiceReference"
+					},
+					"name": "Products"
+				}
+			],
+			"sinks": [
+				{
+					"linkedService": {
+						"referenceName": "ls_AzureDataLakeStorage",
+						"type": "LinkedServiceReference"
+					},
+					"name": "ProductsNullSink"
+				},
+				{
+					"linkedService": {
+						"referenceName": "ls_AzureSqlDatabase",
+						"type": "LinkedServiceReference"
+					},
+					"name": "ProductsDBSink"
+				}
+			],
+			"transformations": [
+				{
+					"name": "AddsrctoColumnNames"
+				},
+				{
+					"name": "split1"
+				},
+				{
+					"name": "RenametheColumns"
+				},
+				{
+					"name": "RemoveDuplicates"
+				},
+				{
+					"name": "alterRow"
+				}
+			],
+			"scriptLines": [
+				"source(output(",
+				"          ProductID as integer,",
+				"          Name as string,",
+				"          Category as string,",
+				"          Price as decimal(10,0)",
+				"     ),",
+				"     useSchema: false,",
+				"     allowSchemaDrift: true,",
+				"     validateSchema: false,",
+				"     ignoreNoFilesFound: false,",
+				"     format: 'delimited',",
+				"     fileSystem: 'project3',",
+				"     folderPath: 'bronze',",
+				"     fileName: 'Products.csv',",
+				"     columnDelimiter: ',',",
+				"     escapeChar: '\\\\',",
+				"     quoteChar: '\\\"',",
+				"     columnNamesAsHeader: true) ~> Products",
+				"Products select(mapColumn(",
+				"          each(match(1==1),",
+				"               concat('src_',$$) = $$)",
+				"     ),",
+				"     skipDuplicateMapInputs: true,",
+				"     skipDuplicateMapOutputs: true) ~> AddsrctoColumnNames",
+				"AddsrctoColumnNames split(isNull(src_ProductID) || isNull(src_Name) || isNull(src_Category) || isNull(src_Price),",
+				"     disjoint: false) ~> split1@(isNullProducts, notNullProducts)",
+				"split1@isNullProducts select(mapColumn(",
+				"          ProductID = src_ProductID,",
+				"          Name = src_Name,",
+				"          Category = src_Category,",
+				"          Price = src_Price",
+				"     ),",
+				"     skipDuplicateMapInputs: true,",
+				"     skipDuplicateMapOutputs: true) ~> RenametheColumns",
+				"split1@notNullProducts aggregate(groupBy(src_ProductID),",
+				"     each(match(name!='src_ProductID'), $$ = first($$))) ~> RemoveDuplicates",
+				"RemoveDuplicates alterRow(upsertIf(1==1)) ~> alterRow",
+				"RenametheColumns sink(allowSchemaDrift: true,",
+				"     validateSchema: false,",
+				"     format: 'delimited',",
+				"     fileSystem: 'project3',",
+				"     folderPath: 'silver-uncleaned/products',",
+				"     columnDelimiter: ',',",
+				"     escapeChar: '\\\\',",
+				"     quoteChar: '\\\"',",
+				"     columnNamesAsHeader: true,",
+				"     umask: 0022,",
+				"     preCommands: [],",
+				"     postCommands: [],",
+				"     skipDuplicateMapInputs: true,",
+				"     skipDuplicateMapOutputs: true) ~> ProductsNullSink",
+				"alterRow sink(allowSchemaDrift: true,",
+				"     validateSchema: false,",
+				"     input(",
+				"          ProductID as integer,",
+				"          Name as string,",
+				"          Category as string,",
+				"          Price as decimal(10,2)",
+				"     ),",
+				"     format: 'table',",
+				"     store: 'sqlserver',",
+				"     schemaName: 'dbo',",
+				"     tableName: 'Products',",
+				"     insertable: false,",
+				"     updateable: false,",
+				"     deletable: false,",
+				"     upsertable: true,",
+				"     keys:['ProductID'],",
+				"     stagingSchemaName: '',",
+				"     skipDuplicateMapInputs: true,",
+				"     skipDuplicateMapOutputs: true,",
+				"     errorHandlingOption: 'stopOnFirstError',",
+				"     mapColumn(",
+				"          ProductID = src_ProductID,",
+				"          Name = src_Name,",
+				"          Category = src_Category,",
+				"          Price = src_Price",
+				"     )) ~> ProductsDBSink"
+			]
+		}
+	}
+}

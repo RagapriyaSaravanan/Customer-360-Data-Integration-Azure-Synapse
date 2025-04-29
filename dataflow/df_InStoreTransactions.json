@@ -1,0 +1,187 @@
+{
+	"name": "df_InStoreTransactions",
+	"properties": {
+		"type": "MappingDataFlow",
+		"typeProperties": {
+			"sources": [
+				{
+					"linkedService": {
+						"referenceName": "ls_AzureDataLakeStorage",
+						"type": "LinkedServiceReference"
+					},
+					"name": "InStoreTransactions"
+				},
+				{
+					"linkedService": {
+						"referenceName": "ls_AzureSqlDatabase",
+						"type": "LinkedServiceReference"
+					},
+					"name": "Customers"
+				},
+				{
+					"linkedService": {
+						"referenceName": "ls_AzureSqlDatabase",
+						"type": "LinkedServiceReference"
+					},
+					"name": "Stores"
+				}
+			],
+			"sinks": [
+				{
+					"linkedService": {
+						"referenceName": "ls_AzureSqlDatabase",
+						"type": "LinkedServiceReference"
+					},
+					"name": "InStoreTransactionsDBSink"
+				},
+				{
+					"linkedService": {
+						"referenceName": "ls_AzureDataLakeStorage",
+						"type": "LinkedServiceReference"
+					},
+					"name": "InStoreTransactionsNullSink"
+				}
+			],
+			"transformations": [
+				{
+					"name": "AddsrctoColumns"
+				},
+				{
+					"name": "LookupCustomers"
+				},
+				{
+					"name": "LookupStores"
+				},
+				{
+					"name": "filterNulls"
+				},
+				{
+					"name": "split1"
+				},
+				{
+					"name": "RemoveDuplicates"
+				},
+				{
+					"name": "alterRow"
+				},
+				{
+					"name": "Renamethecolumns"
+				}
+			],
+			"scriptLines": [
+				"source(output(",
+				"          TransactionID as integer,",
+				"          CustomerID as integer,",
+				"          StoreID as integer,",
+				"          DateTime as timestamp,",
+				"          Amount as decimal(5,2),",
+				"          PaymentMethod as string",
+				"     ),",
+				"     useSchema: false,",
+				"     allowSchemaDrift: true,",
+				"     validateSchema: false,",
+				"     ignoreNoFilesFound: false,",
+				"     format: 'delimited',",
+				"     fileSystem: 'project3',",
+				"     folderPath: 'bronze',",
+				"     fileName: 'InStoreTransactions.csv',",
+				"     columnDelimiter: ',',",
+				"     escapeChar: '\\\\',",
+				"     quoteChar: '\\\"',",
+				"     columnNamesAsHeader: true) ~> InStoreTransactions",
+				"source(output(",
+				"          CustomerID as integer",
+				"     ),",
+				"     allowSchemaDrift: true,",
+				"     validateSchema: false,",
+				"     format: 'query',",
+				"     store: 'sqlserver',",
+				"     query: 'SELECT CustomerID FROM dbo.Customers',",
+				"     isolationLevel: 'READ_UNCOMMITTED') ~> Customers",
+				"source(output(",
+				"          StoreID as integer",
+				"     ),",
+				"     allowSchemaDrift: true,",
+				"     validateSchema: false,",
+				"     format: 'query',",
+				"     store: 'sqlserver',",
+				"     query: 'SELECT StoreID FROM dbo.Stores',",
+				"     isolationLevel: 'READ_UNCOMMITTED') ~> Stores",
+				"InStoreTransactions select(mapColumn(",
+				"          each(match(1==1),",
+				"               concat('src_',$$) = $$)",
+				"     ),",
+				"     skipDuplicateMapInputs: true,",
+				"     skipDuplicateMapOutputs: true) ~> AddsrctoColumns",
+				"RemoveDuplicates, Customers lookup(src_CustomerID == CustomerID,",
+				"     multiple: false,",
+				"     pickup: 'any',",
+				"     broadcast: 'auto')~> LookupCustomers",
+				"LookupCustomers, Stores lookup(src_StoreID == StoreID,",
+				"     multiple: false,",
+				"     pickup: 'any',",
+				"     broadcast: 'auto')~> LookupStores",
+				"AddsrctoColumns filter(!isNull(src_TransactionID) && !isNull(src_CustomerID) && !isNull(src_StoreID) && !isNull(src_DateTime) && !isNull(src_PaymentMethod) && !isNull(src_Amount)) ~> filterNulls",
+				"LookupStores split(!isNull(CustomerID) && !isNull(StoreID),",
+				"     disjoint: false) ~> split1@(isExists, NotExists)",
+				"filterNulls aggregate(groupBy(src_TransactionID),",
+				"     each(match(name!='src_TransactionID'), $$ = first($$))) ~> RemoveDuplicates",
+				"split1@isExists alterRow(upsertIf(1==1)) ~> alterRow",
+				"split1@NotExists select(mapColumn(",
+				"          TransactionID = src_TransactionID,",
+				"          CustomerID = src_CustomerID,",
+				"          StoreID = src_StoreID,",
+				"          DateTime = src_DateTime,",
+				"          Amount = src_Amount,",
+				"          PaymentMethod = src_PaymentMethod",
+				"     ),",
+				"     skipDuplicateMapInputs: true,",
+				"     skipDuplicateMapOutputs: true) ~> Renamethecolumns",
+				"alterRow sink(allowSchemaDrift: true,",
+				"     validateSchema: false,",
+				"     input(",
+				"          TransactionID as integer,",
+				"          CustomerID as integer,",
+				"          StoreID as integer,",
+				"          DateTime as timestamp,",
+				"          Amount as decimal(10,2),",
+				"          PaymentMethod as string",
+				"     ),",
+				"     format: 'table',",
+				"     store: 'sqlserver',",
+				"     schemaName: 'dbo',",
+				"     tableName: 'InStoreTransactions',",
+				"     insertable: false,",
+				"     updateable: false,",
+				"     deletable: false,",
+				"     upsertable: true,",
+				"     keys:['TransactionID'],",
+				"     skipDuplicateMapInputs: true,",
+				"     skipDuplicateMapOutputs: true,",
+				"     errorHandlingOption: 'stopOnFirstError',",
+				"     mapColumn(",
+				"          TransactionID = src_TransactionID,",
+				"          CustomerID = src_CustomerID,",
+				"          StoreID = src_StoreID,",
+				"          DateTime = src_DateTime,",
+				"          Amount = src_Amount,",
+				"          PaymentMethod = src_PaymentMethod",
+				"     )) ~> InStoreTransactionsDBSink",
+				"Renamethecolumns sink(allowSchemaDrift: true,",
+				"     validateSchema: false,",
+				"     format: 'delimited',",
+				"     fileSystem: 'project3',",
+				"     folderPath: 'silver-uncleaned/inStoreTransactions',",
+				"     columnDelimiter: ',',",
+				"     escapeChar: '\\\\',",
+				"     quoteChar: '\\\"',",
+				"     columnNamesAsHeader: true,",
+				"     umask: 0022,",
+				"     preCommands: [],",
+				"     postCommands: [],",
+				"     skipDuplicateMapInputs: true,",
+				"     skipDuplicateMapOutputs: true) ~> InStoreTransactionsNullSink"
+			]
+		}
+	}
+}
